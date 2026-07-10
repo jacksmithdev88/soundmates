@@ -1,0 +1,70 @@
+services:
+
+  backend:
+    build:
+      context: ./backend
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+    env_file:
+      - .env
+
+    depends_on:
+      - postgres
+
+    expose:
+      - "8000"
+
+    restart: always
+
+
+  frontend:
+    build:
+      context: ./frontend
+
+    expose:
+      - "80"
+
+    restart: always
+
+
+  postgres:
+    image: postgres:16
+
+    environment:
+      POSTGRES_USER: gameuser
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: musicgame
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    restart: always
+
+
+  nginx:
+    image: nginx:alpine
+
+    ports:
+      - "80:80"
+      - "443:443"
+
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./certbot/www:/var/www/certbot
+      - ./certbot/conf:/etc/letsencrypt
+
+    depends_on:
+      - frontend
+      - backend
+
+    restart: always
+
+
+volumes:
+
+  postgres_data:
