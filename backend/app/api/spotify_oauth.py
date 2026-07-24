@@ -8,9 +8,9 @@ from models.SpotifyToken import SpotifyToken
 spotify_authenticator = SpotifyAuthenticator()
 user_service = UserService()
 spotify_requests = SpotifyRequests()
-def login():
+def login(state: str | None = None):
     spotify_authenticator.return_id_and_secrets()
-    return spotify_authenticator.login()
+    return spotify_authenticator.login(state)
 
 async def callback(code: str):
     return await spotify_authenticator.callback(code)

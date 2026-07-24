@@ -10,6 +10,24 @@ router = APIRouter(prefix="/spotify/requests", tags=["spotify-requests"])
 user_service = UserService()
 spotify_requests = SpotifyRequests()
 
+
+def normalize_track(track: dict) -> dict:
+    artists = track.get("artists", []) or []
+    artist_names = [artist.get("name") for artist in artists if artist.get("name")]
+    album = track.get("album", {}) or {}
+    images = album.get("images") or []
+    release_date = album.get("release_date") or ""
+    release_year = release_date[:4]
+
+    return {
+        "id": track.get("id"),
+        "name": track.get("name"),
+        "artist": artist_names[0] if artist_names else "Unknown",
+        "artists": artist_names,
+        "image": images[0]["url"] if images else None,
+        "release_year": release_year if release_year.isdigit() else None,
+    }
+
 @router.get("/current_user")
 async def get_current_spotify_user( user=Depends(get_current_user)):
     spotify_access_token = user.spotify_access_token
@@ -45,4 +63,8 @@ async def get_tracks_from_search(q: str = Query(...), user=Depends(get_current_u
         query=q
     )
 
-    return search_results
+    return [
+        normalize_track(track)
+        for track in search_results
+        if track.get("name")
+    ]

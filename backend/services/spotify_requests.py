@@ -172,7 +172,7 @@ class SpotifyRequests():
         self, access_token, refresh_token, user, playlist_id, limit=50
     ):
         url = (
-            f"https://api.spotify.com/v1/playlists/{playlist_id}/tracks"
+            f"https://api.spotify.com/v1/playlists/{playlist_id}/items"
             f"?limit={limit}"
         )
         response = await self.spotify_request(
@@ -187,8 +187,8 @@ class SpotifyRequests():
         tracks = []
 
         for item in items:
-            track = item.get("track")
-            if track and track.get("name"):
+            track = item.get("item")
+            if track and track.get("type") == "track" and track.get("name"):
                 tracks.append(track)
 
         return tracks

@@ -1,90 +1,14 @@
+import itertools
 import random
 
 from services.spotify_requests import SpotifyRequests
 
-MUSIC_TRIVIA = [
-    {
-        "question": "Which band released 'Bohemian Rhapsody'?",
-        "answer": "Queen",
-        "options": ["Queen", "The Beatles", "Led Zeppelin", "Pink Floyd"],
-    },
-    {
-        "question": "What instrument does a drummer play?",
-        "answer": "Drums",
-        "options": ["Drums", "Guitar", "Piano", "Violin"],
-    },
-    {
-        "question": "Which artist is known as the 'King of Pop'?",
-        "answer": "Michael Jackson",
-        "options": ["Michael Jackson", "Elvis Presley", "Prince", "Justin Timberlake"],
-    },
-    {
-        "question": "What genre originated in Jamaica in the late 1960s?",
-        "answer": "Reggae",
-        "options": ["Reggae", "Ska", "Dubstep", "Calypso"],
-    },
-    {
-        "question": "Which band wrote 'Stairway to Heaven'?",
-        "answer": "Led Zeppelin",
-        "options": ["Led Zeppelin", "Deep Purple", "Black Sabbath", "The Who"],
-    },
-    {
-        "question": "How many strings does a standard guitar have?",
-        "answer": "6",
-        "options": ["6", "4", "5", "8"],
-    },
-    {
-        "question": "Which artist released the album '1989'?",
-        "answer": "Taylor Swift",
-        "options": ["Taylor Swift", "Adele", "Lady Gaga", "Katy Perry"],
-    },
-    {
-        "question": "What does 'DJ' stand for?",
-        "answer": "Disc Jockey",
-        "options": ["Disc Jockey", "Digital Jukebox", "Dance Jam", "Direct Jam"],
-    },
-    {
-        "question": "Which composer wrote the 'Moonlight Sonata'?",
-        "answer": "Beethoven",
-        "options": ["Beethoven", "Mozart", "Bach", "Chopin"],
-    },
-    {
-        "question": "Which festival is famously held in the California desert?",
-        "answer": "Coachella",
-        "options": ["Coachella", "Glastonbury", "Burning Man", "Lollapalooza"],
-    },
-    {
-        "question": "What is the highest male singing voice called?",
-        "answer": "Tenor",
-        "options": ["Tenor", "Baritone", "Bass", "Alto"],
-    },
-    {
-        "question": "Which rapper released 'The Marshall Mathers LP'?",
-        "answer": "Eminem",
-        "options": ["Eminem", "Jay-Z", "Drake", "Kanye West"],
-    },
-    {
-        "question": "What country is K-pop most associated with?",
-        "answer": "South Korea",
-        "options": ["South Korea", "Japan", "China", "Thailand"],
-    },
-    {
-        "question": "Which Beatles album features a zebra crossing on the cover?",
-        "answer": "Abbey Road",
-        "options": ["Abbey Road", "Revolver", "Help!", "Rubber Soul"],
-    },
-    {
-        "question": "What does 'BPM' stand for in music production?",
-        "answer": "Beats Per Minute",
-        "options": ["Beats Per Minute", "Bass Per Measure", "Band Performance Mode", "Beat Pattern Mix"],
-    },
-]
-
 
 class QuestionService:
-    def __init__(self, game_mode: str, spotify_users):
+    def __init__(self, game_mode: str, spotify_users, question_count: int = 15):
         self.game_mode = game_mode
         self.spotify_users = spotify_users
+        self.question_count = question_count
         self.spotify_requests = SpotifyRequests()
 
         self.answer_options = [
@@ -184,6 +108,21 @@ class QuestionService:
             "image": images[0]["url"] if images else None,
         }
 
+    def mask_title(self, title: str) -> str:
+        masked_chars = []
+        at_word_start = True
+
+        for char in title:
+            if char.isalnum():
+                masked_chars.append(char if at_word_start else "_")
+                at_word_start = False
+            else:
+                masked_chars.append(char)
+                if char.isspace():
+                    at_word_start = True
+
+        return "".join(masked_chars)
+
     def build_song_clues(self, track: dict):
         artists = track.get("artists", [])
         artist_names = [
@@ -229,8 +168,10 @@ class QuestionService:
             else None,
             {
                 "number": 5,
-                "text": f"The song title is '{track.get('name')}'",
-            },
+                "text": f"The title looks like: '{self.mask_title(track.get('name') or '')}'",
+            }
+            if track.get("name")
+            else None,
         ]
 
         return [clue for clue in clues if clue]
@@ -243,47 +184,6 @@ class QuestionService:
             user=user,
             limit=limit,
         )
-
-    # ------------------------------------------------------------------
-    # Higher or Lower
-    # ------------------------------------------------------------------
-
-    async def create_higher_or_lower_questions(self, question_count=15):
-        selected_user = self.pick_random_user()
-        if not selected_user:
-            return []
-
-        tracks = await self.get_tracks_for_user(selected_user, limit=50)
-        if len(tracks) < 2:
-            return []
-
-        random.shuffle(tracks)
-        questions = []
-
-        for index in range(min(question_count, len(tracks) - 1)):
-            track_a = tracks[index]
-            track_b = tracks[index + 1]
-
-            pop_a = track_a.get("popularity", 0)
-            pop_b = track_b.get("popularity", 0)
-
-            if pop_a == pop_b:
-                continue
-
-            answer = "Higher" if pop_b > pop_a else "Lower"
-
-            questions.append(
-                {
-                    "type": "higher_or_lower",
-                    "question": "Is the next song higher or lower on the charts?",
-                    "track_a": self.track_summary(track_a),
-                    "track_b": self.track_summary(track_b),
-                    "answer": answer,
-                    "options": ["Higher", "Lower"],
-                }
-            )
-
-        return questions
 
     # ------------------------------------------------------------------
     # Whats the song?
@@ -402,7 +302,7 @@ class QuestionService:
         return questions[:question_count]
 
     # ------------------------------------------------------------------
-    # Get that year
+    # Guess the Year
     # ------------------------------------------------------------------
 
     async def create_get_that_year_questions(self, question_count=15):
@@ -491,23 +391,39 @@ class QuestionService:
         return questions
 
     # ------------------------------------------------------------------
-    # Music Trivia
+    # Find a Song From the Year
     # ------------------------------------------------------------------
 
-    def create_music_trivia_questions(self, question_count=15):
-        selected = random.sample(
-            MUSIC_TRIVIA,
-            k=min(question_count, len(MUSIC_TRIVIA)),
-        )
+    async def create_match_the_year_questions(self, question_count=15):
+        candidate_years = []
+
+        for user in self.spotify_users:
+            tracks = await self.get_tracks_for_user(user, limit=50)
+
+            for track in tracks:
+                release_year = (track.get("album", {}).get("release_date") or "")[:4]
+                if release_year.isdigit():
+                    candidate_years.append(release_year)
+
+        if not candidate_years:
+            return []
+
+        random.shuffle(candidate_years)
+
+        if len(candidate_years) >= question_count:
+            selected_years = candidate_years[:question_count]
+        else:
+            selected_years = [
+                random.choice(candidate_years) for _ in range(question_count)
+            ]
 
         return [
             {
-                "type": "music_trivia",
-                "question": item["question"],
-                "answer": item["answer"],
-                "options": item["options"],
+                "type": "match_the_year",
+                "question": f"Search Spotify and pick a song released in {year}",
+                "target_year": year,
             }
-            for item in selected
+            for year in selected_years
         ]
 
     # ------------------------------------------------------------------
@@ -581,13 +497,16 @@ class QuestionService:
 
             tracks = []
             if library_user:
-                tracks = await self.spotify_requests.get_playlist_tracks(
-                    playlist["library_access_token"],
-                    playlist["library_refresh_token"],
-                    library_user,
-                    playlist["id"],
-                    limit=50,
-                )
+                try:
+                    tracks = await self.spotify_requests.get_playlist_tracks(
+                        playlist["library_access_token"],
+                        playlist["library_refresh_token"],
+                        library_user,
+                        playlist["id"],
+                        limit=50,
+                    )
+                except Exception:
+                    tracks = []
 
             if tracks:
                 track = random.choice(tracks)
@@ -616,7 +535,7 @@ class QuestionService:
 
         questions = []
 
-        while True:
+        while len(questions) < self.question_count:
             question = await self.create_playlist_question()
             if not question:
                 break
@@ -625,29 +544,206 @@ class QuestionService:
         return questions
 
     # ------------------------------------------------------------------
+    # Playlist Vibes
+    # ------------------------------------------------------------------
+
+    async def create_playlist_vibe_questions(self):
+        await self.load_playlists()
+
+        available = [
+            playlist
+            for playlist in self.playlists
+            if playlist.get("library_username")
+        ]
+
+        questions = []
+
+        for playlist in available:
+            if len(questions) >= self.question_count:
+                break
+
+            if playlist.get("id") in self.used_playlist_ids:
+                continue
+
+            library_user = next(
+                (
+                    user
+                    for user in self.spotify_users
+                    if user.id == playlist["library_user_id"]
+                ),
+                None,
+            )
+
+            if not library_user:
+                continue
+
+            try:
+                tracks = await self.spotify_requests.get_playlist_tracks(
+                    playlist["library_access_token"],
+                    playlist["library_refresh_token"],
+                    library_user,
+                    playlist["id"],
+                    limit=50,
+                )
+            except Exception:
+                # Some playlists (Spotify-owned/algorithmic, or ones the
+                # user follows but doesn't own) return errors when fetching
+                # tracks. Skip them rather than let one bad playlist crash
+                # the whole round.
+                continue
+
+            if len(tracks) < 3:
+                continue
+
+            self.used_playlist_ids.add(playlist.get("id"))
+            sample_tracks = random.sample(tracks, 3)
+            library_username = playlist["library_username"]
+
+            questions.append(
+                {
+                    "type": "playlist_vibe",
+                    "question": "Whose playlist has these three songs?",
+                    "tracks": [self.track_summary(track) for track in sample_tracks],
+                    "answer": library_username,
+                    "options": self.build_player_options(library_username),
+                }
+            )
+
+        return questions
+
+    # ------------------------------------------------------------------
+    # Cover Art Blur
+    # ------------------------------------------------------------------
+
+    async def create_cover_art_blur_questions(self, question_count=15):
+        selected_user = self.pick_random_user()
+        if not selected_user:
+            return []
+
+        tracks = await self.get_tracks_for_user(selected_user, limit=50)
+        tracks = [
+            track
+            for track in tracks
+            if track.get("name") and track.get("album", {}).get("images")
+        ]
+
+        if not tracks:
+            return []
+
+        all_song_names = [track.get("name") for track in tracks]
+
+        random.shuffle(tracks)
+        questions = []
+
+        for track in tracks:
+            if len(questions) >= question_count:
+                break
+
+            summary = self.track_summary(track)
+
+            questions.append(
+                {
+                    "type": "cover_art_blur",
+                    "question": "What song is behind this cover art?",
+                    "track": summary,
+                    "answer": summary["name"],
+                    "options": self.build_song_options(summary["name"], all_song_names),
+                    "blur_stages": 5,
+                }
+            )
+
+        return questions
+
+    # ------------------------------------------------------------------
+    # Taste Twins
+    # ------------------------------------------------------------------
+
+    async def create_taste_twins_questions(self):
+        if len(self.spotify_users) < 2:
+            return []
+
+        artist_sets = {}
+
+        for user in self.spotify_users:
+            access_token, refresh_token = self.get_spotify_tokens(user)
+
+            top_artists = await self.spotify_requests.get_users_top_artists(
+                access_token=access_token,
+                refresh_token=refresh_token,
+                user=user,
+                limit=50,
+            )
+
+            artist_sets[user.id] = {
+                artist.get("name")
+                for artist in top_artists
+                if artist.get("name")
+            }
+
+        pairs = list(itertools.combinations(self.spotify_users, 2))
+        if not pairs:
+            return []
+
+        random.shuffle(pairs)
+
+        questions = []
+
+        # One round per unique pair, no repeats — round count is naturally
+        # capped by how many players are in the room, not a chosen number.
+        for player_a, player_b in pairs:
+            overlap = len(
+                artist_sets.get(player_a.id, set())
+                & artist_sets.get(player_b.id, set())
+            )
+
+            name_a = player_a.username or "Player A"
+            name_b = player_b.username or "Player B"
+
+            questions.append(
+                {
+                    "type": "taste_twins",
+                    "question": (
+                        f"How many artists do {name_a} and {name_b} "
+                        f"both have in their Top Artists?"
+                    ),
+                    "player_a_name": name_a,
+                    "player_b_name": name_b,
+                    "target_overlap": overlap,
+                }
+            )
+
+        return questions
+
+    # ------------------------------------------------------------------
     # Factory
     # ------------------------------------------------------------------
 
     async def create_questions_for_game_mode(self):
-        if self.game_mode == "Higher or Lower":
-            return await self.create_higher_or_lower_questions()
-
         if self.game_mode == "Whats the song?":
-            return await self.create_guess_the_song_questions()
+            return await self.create_guess_the_song_questions(self.question_count)
 
         if self.game_mode == "Who Listened To This?":
-            return await self.create_who_listened_questions()
+            return await self.create_who_listened_questions(self.question_count)
 
-        if self.game_mode == "Get that year":
-            return await self.create_get_that_year_questions()
+        if self.game_mode == "Guess the Year":
+            return await self.create_get_that_year_questions(self.question_count)
 
         if self.game_mode == "Guess the Artist":
-            return await self.create_guess_the_artist_questions()
-
-        if self.game_mode == "Music Trivia":
-            return self.create_music_trivia_questions()
+            return await self.create_guess_the_artist_questions(self.question_count)
 
         if self.game_mode == "Guess who? (Playlist)":
             return await self.create_playlist_questions()
+
+        if self.game_mode == "Find a Song From the Year":
+            return await self.create_match_the_year_questions(self.question_count)
+
+        if self.game_mode == "Playlist Vibes":
+            return await self.create_playlist_vibe_questions()
+
+        if self.game_mode == "Cover Art Blur":
+            return await self.create_cover_art_blur_questions(self.question_count)
+
+        if self.game_mode == "Taste Twins":
+            return await self.create_taste_twins_questions()
 
         return []

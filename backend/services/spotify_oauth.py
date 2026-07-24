@@ -29,13 +29,16 @@ class SpotifyAuthenticator():
         return error_data.get("error_description") or error_data.get("error") or response.text
 
 
-    def login(self):
-        params = { 
+    def login(self, state: str | None = None):
+        params = {
             "client_id": self.client_id,
             "response_type": "code",
             "redirect_uri": self.callback_url,
             "scope": " ".join(self.scopes)
         }
+
+        if state:
+            params["state"] = state
 
         url = (
             "https://accounts.spotify.com/authorize?"

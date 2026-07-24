@@ -1,3 +1,5 @@
+import re
+
 from fastapi import APIRouter, Depends
 from fastapi.responses import RedirectResponse
 from app.api.spotify_oauth import create_or_update_user, login as spotify_login
@@ -14,12 +16,24 @@ FRONTEND_DASHBOARD_URL = settings.FRONTEND_URL + "/dashboard"
 ACCESS_TOKEN_COOKIE_NAME = "access_token"
 REFRESH_TOKEN_COOKIE_NAME = "refresh_token"
 
+# Only ever redirect back into the app on a known-safe, tightly-matched path.
+# This is the only thing standing between an attacker-controlled `state`/`next`
+# value and an open redirect, so keep it strict rather than permissive.
+SAFE_NEXT_PATH_PATTERN = re.compile(r"^/join/[A-Z0-9]{6}$")
+
+
+def _safe_next_path(next_path: str | None) -> str | None:
+    if next_path and SAFE_NEXT_PATH_PATTERN.match(next_path):
+        return next_path
+    return None
+
+
 @router.get("/login")
-async def login():
-    return spotify_login()
+async def login(next: str | None = None):
+    return spotify_login(_safe_next_path(next))
 
 @router.get("/callback")
-async def callback(code: str, db=Depends(get_db)):
+async def callback(code: str, state: str | None = None, db=Depends(get_db)):
 
     token = SpotifyToken(**await spotify_callback(code))
 
@@ -33,7 +47,10 @@ async def callback(code: str, db=Depends(get_db)):
 
     await add_refresh_token_to_user(db, user, refresh_token)
 
-    response = RedirectResponse(FRONTEND_DASHBOARD_URL)
+    safe_next_path = _safe_next_path(state)
+    redirect_url = f"{settings.FRONTEND_URL}{safe_next_path}" if safe_next_path else FRONTEND_DASHBOARD_URL
+
+    response = RedirectResponse(redirect_url)
     response.set_cookie(
         key=ACCESS_TOKEN_COOKIE_NAME,
         value=jwt_token,

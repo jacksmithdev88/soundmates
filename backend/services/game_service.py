@@ -14,13 +14,15 @@ from services.user_service import UserService
 
 class GameService:
     VALID_GAME_MODES = [
-        "Higher or Lower",
-        "Get that year",
+        "Guess the Year",
         "Guess the Artist",
         "Whats the song?",
         "Who Listened To This?",
-        "Music Trivia",
-        "Guess who? (Playlist)"
+        "Guess who? (Playlist)",
+        "Find a Song From the Year",
+        "Playlist Vibes",
+        "Cover Art Blur",
+        "Taste Twins",
     ]
 
     def __init__(self):
@@ -65,6 +67,7 @@ class GameService:
         return {
             "type": "room_state",
             "room_id": room_id,
+            "host_id": self.game_rooms[room_id]["host"],
             "players": [
                 {
                     **self.room_members[room_id][user_id],
@@ -184,7 +187,8 @@ class GameService:
         room_id: str,
         user,
         game_mode,
-        db: AsyncSession
+        db: AsyncSession,
+        question_count: int = 15
     ):
         room = self.game_rooms.get(room_id)
 
@@ -200,29 +204,121 @@ class GameService:
 
         question_service = QuestionService(
             game_mode,
-            spotify_users
+            spotify_users,
+            question_count
         )
 
         room["question_service"] = question_service
         room["current_question"] = 0
+
+    def _taste_twins_verdict(self, overlap: int) -> str:
+        if overlap == 0:
+            return "Complete opposites — not a single artist in common! 🙅"
+
+        if overlap <= 3:
+            return f"Practically strangers — only {overlap} shared artist(s)."
+
+        if overlap <= 8:
+            return f"A few bangers in common — {overlap} shared artists."
+
+        if overlap <= 15:
+            return f"Basically musical twins — {overlap} shared artists!"
+
+        return f"Soulmates?! {overlap} shared artists — do you two share a Spotify account? 💞"
 
     async def reveal_answer(self, room_id: str):
         room = self.game_rooms[room_id]
 
         question = room["current_question_data"]
 
-        await self._broadcast(room_id, {
-            "type": "answer",
-            "answer": question["answer"],
-            "question_id": room["current_question"],
-            "reveal_extra": (
-                f"Chart score: {question['track_b'].get('popularity')}/100"
-                if question.get("type") == "higher_or_lower"
-                and question.get("track_b", {}).get("popularity") is not None
-                else None
-            ),
-        })
+        if question.get("type") == "match_the_year":
+            target_year = int(question["target_year"])
 
+            for user_id, submitted in room["answers"].items():
+                name = self.room_members[room_id].get(user_id, {}).get("display_name", "Player")
+                has_pick = isinstance(submitted, dict) and submitted.get("year")
+
+                years_off = abs(target_year - int(submitted["year"])) if has_pick else None
+                points = (5 - years_off) if has_pick else 0
+
+                await self._broadcast(room_id, {
+                    "type": "player_reveal",
+                    "question_id": room["current_question"],
+                    "user_id": user_id,
+                    "name": name,
+                    "track_name": submitted.get("name") if has_pick else None,
+                    "track_artist": submitted.get("artist") if has_pick else None,
+                    "year": submitted.get("year") if has_pick else None,
+                    "years_off": years_off,
+                    "points": points,
+                })
+
+                await asyncio.sleep(1.5)
+
+            await self._broadcast(room_id, {
+                "type": "answer",
+                "answer": f"Target year: {target_year}",
+                "question_id": room["current_question"],
+                "reveal_extra": None,
+            })
+
+            await asyncio.sleep(2)
+
+            await self.send_next_question(room_id)
+            return
+        elif question.get("type") == "taste_twins":
+            target = int(question["target_overlap"])
+
+            for user_id, submitted in room["answers"].items():
+                name = self.room_members[room_id].get(user_id, {}).get("display_name", "Player")
+
+                try:
+                    guess = int(submitted)
+                except (TypeError, ValueError):
+                    guess = None
+
+                points = (5 - abs(target - guess)) if guess is not None else 0
+
+                await self._broadcast(room_id, {
+                    "type": "player_reveal",
+                    "question_id": room["current_question"],
+                    "user_id": user_id,
+                    "name": name,
+                    "guess": guess,
+                    "points": points,
+                })
+
+                await asyncio.sleep(1.2)
+
+            await self._broadcast(room_id, {
+                "type": "answer",
+                "answer": f"The real number: {target} shared artists!",
+                "question_id": room["current_question"],
+                "reveal_extra": self._taste_twins_verdict(target),
+            })
+
+            await asyncio.sleep(2)
+
+            await self.send_next_question(room_id)
+            return
+        else:
+            round_points = room.get("last_round_points", {})
+            round_scores = [
+                {
+                    "user_id": user_id,
+                    "name": self.room_members[room_id].get(user_id, {}).get("display_name", "Player"),
+                    "points": points,
+                }
+                for user_id, points in round_points.items()
+            ]
+
+            await self._broadcast(room_id, {
+                "type": "answer",
+                "answer": question["answer"],
+                "question_id": room["current_question"],
+                "reveal_extra": None,
+                "round_scores": round_scores,
+            })
 
         await asyncio.sleep(4)
 
@@ -266,15 +362,32 @@ class GameService:
                 detail="User is not in a room"
             )
 
+        room = self.game_rooms[room_id]
+        was_host = room["host"] == user.id
+
         self._remove_room_member(room_id, user.id)
-        self.game_rooms[room_id]["users"].discard(user.id)
+        room["users"].discard(user.id)
         self.connections[room_id].pop(user.id, None)
+
+        if not room["users"]:
+            del self.game_rooms[room_id]
+            self.connections.pop(room_id, None)
+            return {
+                "room_id": room_id,
+                "left": True,
+            }
+
+        if was_host:
+            room["host"] = next(iter(room["users"]))
 
         await self._broadcast_room_state(room_id)
 
-        if not self.game_rooms[room_id]["users"]:
-            del self.game_rooms[room_id]
-            self.connections.pop(room_id, None)
+        if was_host:
+            await self._broadcast(room_id, {
+                "type": "host_changed",
+                "room_id": room_id,
+                "host": self.room_members[room_id].get(room["host"]),
+            })
 
         return {
             "room_id": room_id,
@@ -286,9 +399,16 @@ class GameService:
         room["answers"] = {}
 
         question_service = room["question_service"]
-        question = await question_service.get_next_question()
+
+        try:
+            question = await question_service.get_next_question()
+        except Exception as exc:
+            print(f"Failed to generate question for room {room_id}: {exc}")
+            question = None
 
         if not question:
+            room["started"] = False
+
             scores = []
             for user_id in room["users"]:
                 scores.append({
@@ -296,6 +416,8 @@ class GameService:
                     "name": self.room_members[room_id][user_id]["display_name"],
                     "score": room["scores"].get(user_id, 0),
                 })
+
+            await self._broadcast_room_state(room_id)
 
             await self._broadcast(room_id, {
                 "type": "game_over",
@@ -305,15 +427,9 @@ class GameService:
 
         room["current_question_data"] = question
 
-        client_question = dict(question)
-        if client_question.get("type") == "higher_or_lower" and "track_b" in client_question:
-            track_b = dict(client_question["track_b"])
-            track_b.pop("popularity", None)
-            client_question["track_b"] = track_b
-
         await self._broadcast(room_id, {
             "type": "question",
-            "question": client_question,
+            "question": dict(question),
         })
 
     async def send_score_update(self, room_id):
@@ -345,11 +461,78 @@ class GameService:
 
         if len(room["answers"]) >= len(room["users"]):
             question = room["current_question_data"]
-            correct = question["answer"]
+            round_points = {}
 
-            for user_id, submitted_answer in room["answers"].items():
-                if submitted_answer == correct:
-                    room["scores"][user_id] += 1
+            if question.get("type") == "match_the_year":
+                target_year = int(question["target_year"])
+
+                for user_id, submitted_answer in room["answers"].items():
+                    submitted_year = (
+                        submitted_answer.get("year")
+                        if isinstance(submitted_answer, dict)
+                        else None
+                    )
+
+                    if submitted_year is None:
+                        round_points[user_id] = 0
+                        continue
+
+                    years_off = abs(target_year - int(submitted_year))
+                    points = 5 - years_off
+                    round_points[user_id] = points
+                    room["scores"][user_id] += points
+            elif question.get("type") == "guess_the_song":
+                correct = question["answer"]
+                max_clues = len(question.get("clues", [])) or 5
+
+                for user_id, submitted_answer in room["answers"].items():
+                    if not isinstance(submitted_answer, dict) or submitted_answer.get("option") != correct:
+                        round_points[user_id] = 0
+                        continue
+
+                    clues_shown = submitted_answer.get("clues_shown") or 1
+                    clues_shown = max(1, min(max_clues, int(clues_shown)))
+                    points = (max_clues - clues_shown) + 1
+                    round_points[user_id] = points
+                    room["scores"][user_id] += points
+            elif question.get("type") == "cover_art_blur":
+                correct = question["answer"]
+                max_stages = question.get("blur_stages") or 5
+
+                for user_id, submitted_answer in room["answers"].items():
+                    if not isinstance(submitted_answer, dict) or submitted_answer.get("option") != correct:
+                        round_points[user_id] = 0
+                        continue
+
+                    blur_stage = submitted_answer.get("blur_stage") or 1
+                    blur_stage = max(1, min(max_stages, int(blur_stage)))
+                    points = (max_stages - blur_stage) + 1
+                    round_points[user_id] = points
+                    room["scores"][user_id] += points
+            elif question.get("type") == "taste_twins":
+                target = int(question["target_overlap"])
+
+                for user_id, submitted_answer in room["answers"].items():
+                    try:
+                        guess = int(submitted_answer)
+                    except (TypeError, ValueError):
+                        round_points[user_id] = 0
+                        continue
+
+                    points = 5 - abs(target - guess)
+                    round_points[user_id] = points
+                    room["scores"][user_id] += points
+            else:
+                correct = question["answer"]
+
+                for user_id, submitted_answer in room["answers"].items():
+                    if submitted_answer == correct:
+                        round_points[user_id] = 1
+                        room["scores"][user_id] += 1
+                    else:
+                        round_points[user_id] = 0
+
+            room["last_round_points"] = round_points
 
             await self.send_score_update(room_id)
             await self.reveal_answer(room_id)
@@ -420,7 +603,10 @@ class GameService:
                     payload = {"type": "message", "message": message}
 
                 if payload.get("type") == "select_game_mode":
-                    await self.select_game_mode(room_id, user, payload.get("game_mode"))
+                    try:
+                        await self.select_game_mode(room_id, user, payload.get("game_mode"))
+                    except HTTPException as exc:
+                        await websocket.send_json({"type": "error", "message": exc.detail})
                     continue
 
                 if payload.get("type") == "submit_answer":
@@ -437,17 +623,28 @@ class GameService:
                     room = self.game_rooms[room_id]
                     game_mode = payload.get("game_mode") or room.get("game_mode")
                     if game_mode not in self.VALID_GAME_MODES:
-                        print("Game mode not in list")
+                        await websocket.send_json({"type": "error", "message": "Invalid game mode"})
                         continue
 
-                    await self._broadcast_room_state(room_id)
-                    await self.start_game(room_id, user)
+                    try:
+                        question_count = int(payload.get("question_count", 15))
+                    except (TypeError, ValueError):
+                        question_count = 15
+                    question_count = max(5, min(20, question_count))
+
+                    try:
+                        await self._broadcast_room_state(room_id)
+                        await self.start_game(room_id, user)
+                    except HTTPException as exc:
+                        await websocket.send_json({"type": "error", "message": exc.detail})
+                        continue
 
                     await self.generate_questions(
                         room_id,
                         user,
                         game_mode,
-                        db
+                        db,
+                        question_count
                     )
 
                     await asyncio.sleep(2)
