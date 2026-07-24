@@ -37,8 +37,9 @@ export async function apiFetch(path, options = {}) {
   return response.json()
 }
 
-export function loginWithSpotify() {
-  window.location.href = `${API_BASE_URL}/spotify/auth/login`
+export function loginWithSpotify(next) {
+  const query = next ? `?next=${encodeURIComponent(next)}` : ''
+  window.location.href = `${API_BASE_URL}/spotify/auth/login${query}`
 }
 
 export async function logout() {

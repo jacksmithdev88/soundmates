@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 const socketStore = new Map();
 const roomStateStore = new Map();
+const hostStore = new Map();
 
 function buildSocketUrl(roomId) {
   const configuredBase =
@@ -31,6 +32,10 @@ export function useRoomSocket(roomId) {
     return roomStateStore.get(roomId) || [];
   });
 
+  const [hostId, setHostId] = useState(() => {
+    return hostStore.get(roomId) ?? null;
+  });
+
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState("");
 
@@ -42,6 +47,7 @@ export function useRoomSocket(roomId) {
       setConnected(false);
       setMessages([]);
       setPlayers([]);
+      setHostId(null);
       return;
     }
 
@@ -50,6 +56,12 @@ export function useRoomSocket(roomId) {
 
     if (cachedPlayers) {
       setPlayers(cachedPlayers);
+    }
+
+    const cachedHostId = hostStore.get(roomId);
+
+    if (cachedHostId != null) {
+      setHostId(cachedHostId);
     }
 
     const socket =
@@ -93,6 +105,19 @@ export function useRoomSocket(roomId) {
               roomStateStore.set(roomId, message.players);
             }
 
+            if (message.host_id != null) {
+              setHostId(message.host_id);
+              hostStore.set(roomId, message.host_id);
+            }
+
+            break;
+
+          case "host_changed":
+            if (message.host?.id != null) {
+              setHostId(message.host.id);
+              hostStore.set(roomId, message.host.id);
+            }
+
             break;
 
           default:
@@ -109,6 +134,8 @@ export function useRoomSocket(roomId) {
       socketStore.delete(roomId);
 
       roomStateStore.delete(roomId);
+
+      hostStore.delete(roomId);
 
       if (socketRef.current === socket) {
         socketRef.current = null;
@@ -165,6 +192,7 @@ export function useRoomSocket(roomId) {
     error,
     messages,
     players,
+    hostId,
     sendMessage,
   };
 }

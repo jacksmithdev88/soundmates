@@ -4,6 +4,7 @@ import './App.css'
 import HomePage from './Home'
 import Dashboard from './Dashboard'
 import Game from './Game'
+import JoinRoomPage from './JoinRoom'
 import { apiFetch, logout } from './api/client'
 
 function RequireAuth({ children }) {
@@ -85,6 +86,7 @@ function App() {
           </RequireAuth>
         }
       />
+      <Route path="/join/:roomCode" element={<JoinRoomPage />} />
     </Routes>
   )
 }

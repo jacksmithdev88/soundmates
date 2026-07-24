@@ -1,5 +1,7 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { apiFetch } from '../api/client'
+
+const STORAGE_KEY = 'soundmates_active_room_code'
 
 function extractRoomCode(payload) {
   if (!payload) return ''
@@ -38,6 +40,10 @@ export function useRooms() {
       setIsInRoom(Boolean(nextRoomCode))
       setRoomState(data)
 
+      if (nextRoomCode) {
+        localStorage.setItem(STORAGE_KEY, nextRoomCode)
+      }
+
       return data
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unable to create room'
@@ -66,11 +72,13 @@ export function useRooms() {
       setRoomCode(nextRoomCode)
       setIsInRoom(true)
       setRoomState(data)
+      localStorage.setItem(STORAGE_KEY, nextRoomCode)
 
       return true
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unable to join room'
       setError(message)
+      localStorage.removeItem(STORAGE_KEY)
       return false
     } finally {
       setIsLoading(false)
@@ -86,6 +94,7 @@ export function useRooms() {
       setRoomCode('')
       setIsInRoom(false)
       setRoomState(null)
+      localStorage.removeItem(STORAGE_KEY)
       return true
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unable to leave room'
@@ -94,6 +103,17 @@ export function useRooms() {
     } finally {
       setIsLoading(false)
     }
+  }, [])
+
+  // Rejoin whatever room we were last in (e.g. returning from a finished game)
+  // so the room's players and score carry over instead of being lost on navigation.
+  useEffect(() => {
+    const savedCode = localStorage.getItem(STORAGE_KEY)
+
+    if (savedCode) {
+      joinRoom(savedCode)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   return {
