@@ -54,7 +54,7 @@ const GAME_MODES = [
 
 export function RoomViewer({ currentUserId = null }) {
   const navigate = useNavigate()
-  const { roomCode, setRoomCode, isInRoom, isLoading, error, createRoom, joinRoom, leaveRoom, roomState } = useRooms()
+  const { roomCode, setRoomCode, isInRoom, isLoading, error, createRoom, joinRoom, leaveRoom, roomState, orphanedRoomId } = useRooms()
   const {connected, error: socketError, messages, players, hostId, sendMessage} = useRoomSocket(isInRoom ? roomCode : '')
   const [selectedGameMode, setSelectedGameMode] = useState(roomState?.game_mode || '')
   const [selectionMessage, setSelectionMessage] = useState('')
@@ -160,6 +160,23 @@ export function RoomViewer({ currentUserId = null }) {
 
               {error ? <p className="text-error text-sm mb-4">{error}</p> : null}
 
+              {orphanedRoomId ? (
+                <div className="alert alert-warning mb-4 flex flex-col items-start gap-2 text-left">
+                  <span>
+                    You're still marked as a member of room{' '}
+                    <span className="font-mono font-bold">{orphanedRoomId}</span> from a previous
+                    session. Leave it before creating or joining a new one.
+                  </span>
+                  <button
+                    className="btn btn-sm btn-warning"
+                    onClick={handleLeaveRoom}
+                    disabled={isLoading}
+                  >
+                    {isLoading ? 'Working...' : `Leave room ${orphanedRoomId}`}
+                  </button>
+                </div>
+              ) : null}
+
               <div className="form-control justify-between">
                 <label className="label">
                   <span className="label-text font-semibold">Room Code</span>
@@ -177,7 +194,7 @@ export function RoomViewer({ currentUserId = null }) {
                 <button
                   className="btn btn-primary btn-lg w-full"
                   onClick={handleJoinRoom}
-                  disabled={isLoading}
+                  disabled={isLoading || Boolean(orphanedRoomId)}
                 >
                   {isLoading ? 'Working...' : 'Join Room'}
                 </button>
@@ -189,7 +206,7 @@ export function RoomViewer({ currentUserId = null }) {
             <button
               className="btn btn-secondary btn-lg w-full"
               onClick={handleRoomCreation}
-              disabled={isLoading}
+              disabled={isLoading || Boolean(orphanedRoomId)}
             >
               {isLoading ? 'Working...' : 'Create Room'}
             </button>

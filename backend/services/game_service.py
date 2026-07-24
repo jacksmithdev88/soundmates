@@ -353,6 +353,25 @@ class GameService:
 
         return {"type": "game_started", "room_id": room_id, "game_mode": room["game_mode"]}
 
+    def get_current_room(self, user: User):
+        room_id = self._get_user_room_id(user.id)
+
+        if room_id is None:
+            return {"room_id": None}
+
+        room = self.game_rooms[room_id]
+
+        return {
+            "room_id": room_id,
+            "host": self.room_members[room_id].get(room["host"]),
+            "players": [
+                self.room_members[room_id][user_id]
+                for user_id in room["users"]
+                if user_id in self.room_members[room_id]
+            ],
+            "game_mode": room.get("game_mode"),
+        }
+
     async def leave_room(self, user: User):
         room_id = self._get_user_room_id(user.id)
 
@@ -586,7 +605,7 @@ class GameService:
             "room_id": room_id
         })
 
-        await self._broadcast_room_state(room_id, exclude_user_id=user.id)
+        await self._broadcast_room_state(room_id)
 
         await self._broadcast(room_id, {
             "type": "player_connected",

@@ -31,6 +31,13 @@ async def leave_room(
     return await game_service.leave_room(user)
 
 
+@router.get("/me")
+async def get_current_room(
+    user=Depends(get_current_user)
+):
+    return game_service.get_current_room(user)
+
+
 @router.post("/{room_id}/game-mode")
 async def select_game_mode(
     room_id: str,

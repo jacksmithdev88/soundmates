@@ -22,6 +22,7 @@ export function useRooms() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
   const [roomState, setRoomState] = useState(null)
+  const [orphanedRoomId, setOrphanedRoomId] = useState('')
 
   const createRoom = useCallback(async () => {
     if (isInRoom) {
@@ -94,6 +95,7 @@ export function useRooms() {
       setRoomCode('')
       setIsInRoom(false)
       setRoomState(null)
+      setOrphanedRoomId('')
       localStorage.removeItem(STORAGE_KEY)
       return true
     } catch (err) {
@@ -107,11 +109,38 @@ export function useRooms() {
 
   // Rejoin whatever room we were last in (e.g. returning from a finished game)
   // so the room's players and score carry over instead of being lost on navigation.
+  // The server is the source of truth here: a dropped socket, refresh, or
+  // cleared localStorage can leave the client thinking it's room-less while
+  // the backend still counts it as a member (it's only evicted by an explicit
+  // leave). So we check /rooms/me first rather than trusting localStorage alone.
   useEffect(() => {
-    const savedCode = localStorage.getItem(STORAGE_KEY)
+    let cancelled = false
 
-    if (savedCode) {
-      joinRoom(savedCode)
+    apiFetch('/rooms/me')
+      .then((data) => {
+        if (cancelled) return
+
+        const savedCode = localStorage.getItem(STORAGE_KEY)
+
+        if (data?.room_id) {
+          if (savedCode && savedCode.toUpperCase() === data.room_id.toUpperCase()) {
+            joinRoom(savedCode)
+          } else {
+            setOrphanedRoomId(data.room_id)
+          }
+        } else if (savedCode) {
+          localStorage.removeItem(STORAGE_KEY)
+        }
+      })
+      .catch(() => {
+        const savedCode = localStorage.getItem(STORAGE_KEY)
+        if (savedCode) {
+          joinRoom(savedCode)
+        }
+      })
+
+    return () => {
+      cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -123,6 +152,7 @@ export function useRooms() {
     isLoading,
     error,
     roomState,
+    orphanedRoomId,
     createRoom,
     joinRoom,
     leaveRoom,
