@@ -13,7 +13,8 @@ class SpotifyAuthenticator():
             "user-read-email",
             "user-read-private",
             "playlist-read-private",
-            "user-top-read"
+            "user-top-read",
+            "user-read-recently-played",
         ]
 
     def return_id_and_secrets(self):

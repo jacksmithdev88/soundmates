@@ -15,6 +15,7 @@ from services.user_service import UserService
 class GameService:
     VALID_GAME_MODES = [
         "Higher or Lower",
+        "Get that year",
         "Guess the Artist",
         "Whats the song?",
         "Who Listened To This?",
@@ -213,40 +214,19 @@ class GameService:
         await self._broadcast(room_id, {
             "type": "answer",
             "answer": question["answer"],
-            "question_id": room["current_question"]
+            "question_id": room["current_question"],
+            "reveal_extra": (
+                f"Chart score: {question['track_b'].get('popularity')}/100"
+                if question.get("type") == "higher_or_lower"
+                and question.get("track_b", {}).get("popularity") is not None
+                else None
+            ),
         })
 
 
         await asyncio.sleep(4)
 
         await self.send_next_question(room_id)
-
-    async def generate_questions(
-        self,
-        room_id: str,
-        user,
-        game_mode,
-        db: AsyncSession
-    ):
-        room = self.game_rooms.get(room_id)
-
-        spotify_users = []
-
-        for member_id in room["users"]:
-            spotify_user = await self.user_service.get_user_by_id(
-                db,
-                member_id
-            )
-
-            spotify_users.append(spotify_user)
-
-        question_service = QuestionService(
-            game_mode,
-            spotify_users
-        )
-
-        room["question_service"] = question_service
-        room["current_question"] = 0
 
     async def start_game(self, room_id: str, user):
         room = self.game_rooms.get(room_id)
@@ -303,18 +283,37 @@ class GameService:
     
     async def send_next_question(self, room_id):
         room = self.game_rooms[room_id]
-
         room["answers"] = {}
 
         question_service = room["question_service"]
-
         question = await question_service.get_next_question()
+
+        if not question:
+            scores = []
+            for user_id in room["users"]:
+                scores.append({
+                    "id": user_id,
+                    "name": self.room_members[room_id][user_id]["display_name"],
+                    "score": room["scores"].get(user_id, 0),
+                })
+
+            await self._broadcast(room_id, {
+                "type": "game_over",
+                "scores": scores,
+            })
+            return
 
         room["current_question_data"] = question
 
-        await self._broadcast(room_id,{
-            "type":"question",
-            "question":question
+        client_question = dict(question)
+        if client_question.get("type") == "higher_or_lower" and "track_b" in client_question:
+            track_b = dict(client_question["track_b"])
+            track_b.pop("popularity", None)
+            client_question["track_b"] = track_b
+
+        await self._broadcast(room_id, {
+            "type": "question",
+            "question": client_question,
         })
 
     async def send_score_update(self, room_id):
@@ -334,42 +333,28 @@ class GameService:
             "type": "score_update",
             "scores": scores
         })
-    async def handle_answer(self, room_id: str, user, answer):
-        room = self.game_rooms[room_id]
 
+    async def handle_answer(self, room_id, user, answer):
+        room = self.game_rooms[room_id]
         room["answers"][user.id] = answer
 
         await self._broadcast(room_id, {
             "type": "player_answered",
             "user": user.username,
-            "answered_count": len(room["answers"]),
-            "total_players": len(room["users"])
         })
 
-
-        # Everyone has answered
         if len(room["answers"]) >= len(room["users"]):
-
             question = room["current_question_data"]
+            correct = question["answer"]
 
-            # Calculate scores
             for user_id, submitted_answer in room["answers"].items():
-
-                if submitted_answer == question["answer"]:
+                if submitted_answer == correct:
                     room["scores"][user_id] += 1
 
-
-            # UPDATE SCOREBOARD HERE
             await self.send_score_update(room_id)
-
-
-            # Reveal answer
             await self.reveal_answer(room_id)
-
             return True
 
-
-        return False
     async def websocket_join(
         self,
         websocket: WebSocket,
@@ -449,12 +434,13 @@ class GameService:
                     continue
 
                 if payload.get("type") == "start_game":
-                    game_mode = payload.get("game_mode")
+                    room = self.game_rooms[room_id]
+                    game_mode = payload.get("game_mode") or room.get("game_mode")
                     if game_mode not in self.VALID_GAME_MODES:
                         print("Game mode not in list")
+                        continue
 
                     await self._broadcast_room_state(room_id)
-                    print("start game hit")
                     await self.start_game(room_id, user)
 
                     await self.generate_questions(
@@ -464,11 +450,8 @@ class GameService:
                         db
                     )
 
-                    await asyncio.sleep(4)
-                    print("Sending questions")
+                    await asyncio.sleep(2)
                     await self.send_next_question(room_id)
-                    await asyncio.sleep(4)
-                    await self.send_score_update(room_id)
                     continue
 
                 for ws in self.connections[room_id].values():

@@ -141,8 +141,83 @@ class SpotifyRequests():
 
         return selected_tracks
     
-    async def get_user_playlists(self, access_token, refresh_token, user):
-        url = "https://api.spotify.com/v1/me/playlists?offset=0&limit=50"
+    async def get_user_playlists(self, access_token, refresh_token, user, limit=50):
+        playlists = []
+        offset = 0
+
+        while len(playlists) < limit:
+            url = (
+                f"https://api.spotify.com/v1/me/playlists"
+                f"?offset={offset}&limit={min(50, limit - len(playlists))}"
+            )
+            response = await self.spotify_request(
+                "GET",
+                url,
+                access_token,
+                refresh_token,
+                user,
+            )
+
+            items = response.get("items") or []
+            playlists.extend(items)
+
+            if not response.get("next") or not items:
+                break
+
+            offset += len(items)
+
+        return playlists
+
+    async def get_playlist_tracks(
+        self, access_token, refresh_token, user, playlist_id, limit=50
+    ):
+        url = (
+            f"https://api.spotify.com/v1/playlists/{playlist_id}/tracks"
+            f"?limit={limit}"
+        )
+        response = await self.spotify_request(
+            "GET",
+            url,
+            access_token,
+            refresh_token,
+            user,
+        )
+
+        items = response.get("items") or []
+        tracks = []
+
+        for item in items:
+            track = item.get("track")
+            if track and track.get("name"):
+                tracks.append(track)
+
+        return tracks
+
+    async def get_recently_played(
+        self, access_token, refresh_token, user, limit=20
+    ):
+        url = f"https://api.spotify.com/v1/me/player/recently-played?limit={limit}"
+        response = await self.spotify_request(
+            "GET",
+            url,
+            access_token,
+            refresh_token,
+            user,
+        )
+
+        items = response.get("items") or []
+        tracks = []
+
+        for item in items:
+            track = item.get("track")
+            if track and track.get("name"):
+                tracks.append(track)
+
+        return tracks
+    
+    async def get_search_results(self, access_token, refresh_token, user, query, type):
+        url = f"https://api.spotify.com/v1/search?q={query}&type={type}"
+
         response = await self.spotify_request(
             "GET",
             url,
@@ -150,6 +225,7 @@ class SpotifyRequests():
             refresh_token,
             user
         )
-
-
-        return response["items"]
+        
+        if type == "track":
+            return response["tracks"]["items"]
+        return response 
