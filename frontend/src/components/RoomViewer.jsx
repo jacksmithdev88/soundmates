@@ -87,6 +87,20 @@ export function RoomViewer({ currentUserId = null }) {
     }
   }, [messages])
 
+  // The host triggers "start_game" over the socket, and the backend broadcasts
+  // "game_started" to every connection in the room (host included). Navigate
+  // off of that broadcast rather than only doing it locally for the host, so
+  // every other player actually gets moved into the game instead of being
+  // left behind in the room view.
+  useEffect(() => {
+    if (!messages.length || !roomCode) return
+
+    const startedMessage = messages.find((message) => message?.type === 'game_started')
+    if (startedMessage) {
+      navigate(`/game/${roomCode}`)
+    }
+  }, [messages, roomCode, navigate])
+
   async function handleRoomCreation() {
     await createRoom()
   }
@@ -140,10 +154,6 @@ export function RoomViewer({ currentUserId = null }) {
       game_mode:selectedGameMode,
       question_count: questionCount,
     })
-
-    setTimeout(() => {
-      navigate(`/game/${roomCode}`)
-    }, 500)
   }
 
   if (!isInRoom) {
