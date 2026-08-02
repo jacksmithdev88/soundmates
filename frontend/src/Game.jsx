@@ -518,7 +518,7 @@ function Game() {
   return (
     <main className="min-h-screen p-4 sm:p-6">
       <div className="max-w-6xl mx-auto grid lg:grid-cols-4 gap-6">
-        <aside className="card bg-base-200 border border-base-300 shadow-xl lg:col-span-1 h-fit">
+        <aside className="card bg-base-200 border border-base-300 shadow-xl lg:col-span-1 h-fit order-2 lg:order-1">
           <div className="card-body">
             <div className="flex justify-between items-center">
               <div>
@@ -569,7 +569,7 @@ function Game() {
           </div>
         </aside>
 
-        <section className="card bg-base-200 border border-base-300 shadow-xl lg:col-span-3">
+        <section className="card bg-base-200 border border-base-300 shadow-xl lg:col-span-3 order-1 lg:order-2">
           <div className="card-body">
             {error && <div className="alert alert-error">{error}</div>}
 
@@ -622,6 +622,16 @@ function Game() {
                     <div className="mt-4">{renderQuestionContent()}</div>
                   </div>
 
+                  {revealedAnswer && (
+                    <div className="alert alert-info mt-4">
+                      <div className="min-w-0">
+                        <p className="font-display font-bold">Correct answer</p>
+                        <p className="break-words">{revealedAnswer}</p>
+                        {revealedExtra ? <p className="text-sm mt-1 break-words">{revealedExtra}</p> : null}
+                      </div>
+                    </div>
+                  )}
+
                   {!isSearchMode && !isNumberMode && (
                     <div className="grid gap-3 mt-4">
                       {currentQuestion.options?.map((option, index) => {
@@ -657,16 +667,6 @@ function Game() {
                   >
                     {hasAnswered ? "Answer Submitted" : "Submit Answer"}
                   </button>
-
-                  {revealedAnswer && (
-                    <div className="alert alert-info mt-4">
-                      <div className="min-w-0">
-                        <p className="font-display font-bold">Correct answer</p>
-                        <p className="break-words">{revealedAnswer}</p>
-                        {revealedExtra ? <p className="text-sm mt-1 break-words">{revealedExtra}</p> : null}
-                      </div>
-                    </div>
-                  )}
 
                   {roundScores.length > 0 && (
                     <div className="space-y-2 mt-3">

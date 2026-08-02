@@ -262,7 +262,7 @@ class GameService:
                 "reveal_extra": None,
             })
 
-            await asyncio.sleep(2)
+            await asyncio.sleep(6)
 
             await self.send_next_question(room_id)
             return
@@ -297,7 +297,7 @@ class GameService:
                 "reveal_extra": self._taste_twins_verdict(target),
             })
 
-            await asyncio.sleep(2)
+            await asyncio.sleep(6)
 
             await self.send_next_question(room_id)
             return
@@ -320,7 +320,7 @@ class GameService:
                 "round_scores": round_scores,
             })
 
-        await asyncio.sleep(4)
+        await asyncio.sleep(7)
 
         await self.send_next_question(room_id)
 
